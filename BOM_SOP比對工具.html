@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BOM × SOP 雙向比對工具 — SP-10 Eversync</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+TC:wght@300;400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- mammoth for docx parsing -->
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink:     #1a1a1a;
+  --ink-2:   #555;
+  --ink-3:   #999;
+  --paper:   #fafaf8;
+  --surface: #f5f5f2;
+  --line:    #e0ddd8;
+  --ok:      #1a6640;  --ok-bg:   #eaf4ee;
+  --warn:    #7a4a00;  --warn-bg: #fdf3e0;
+  --err:     #8b1a1a;  --err-bg:  #fdf0ee;
+  --new:     #1a3a6a;  --new-bg:  #edf2fb;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans TC', sans-serif;
+}
+
+html { font-size: 16px; }
+body { font-family: var(--sans); background: var(--paper); color: var(--ink); min-height: 100vh; line-height: 1.6; }
+
+.page { max-width: 960px; margin: 0 auto; padding: 3rem 2rem 5rem; }
+
+/* ── Top bar ── */
+.topbar {
+  display: flex; align-items: baseline; gap: 16px;
+  border-bottom: 1.5px solid var(--ink);
+  padding-bottom: 12px; margin-bottom: 2.5rem;
+}
+.topbar-brand { font-family: var(--mono); font-size: 12px; color: var(--ink-3); letter-spacing:.08em; text-transform:uppercase; }
+.topbar h1    { font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
+.topbar-ver   { margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--ink-3); border:1px solid var(--line); padding:3px 8px; border-radius:2px; }
+
+/* ── Upload grid ── */
+.upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 2rem; }
+@media(max-width:620px){ .upload-grid{ grid-template-columns:1fr; } }
+
+.upload-card { display:flex; flex-direction:column; gap:8px; }
+.upload-label-row { display:flex; align-items:center; justify-content:space-between; }
+.upload-label { font-size:11px; font-family:var(--mono); color:var(--ink-3); text-transform:uppercase; letter-spacing:.07em; }
+.file-type-badge { font-size:10px; font-family:var(--mono); padding:2px 7px; border-radius:2px; }
+.badge-xlsx { background:#edf2fb; color:#1a3a6a; }
+.badge-docx { background:#eaf4ee; color:#1a6640; }
+
+.dropzone {
+  border: 1.5px dashed var(--line); border-radius:4px;
+  padding: 2rem 1.5rem; text-align:center; cursor:pointer;
+  transition: border-color .15s, background .15s;
+  background: #fff; position:relative; flex:1;
+}
+.dropzone:hover, .dropzone.drag { border-color:var(--ink); background:var(--surface); }
+.dropzone.loaded { border-style:solid; border-color:var(--ok); }
+.dropzone input { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+.dz-icon { font-size:22px; color:var(--ink-3); margin-bottom:8px; }
+.dropzone h3 { font-size:14px; font-weight:500; }
+.dropzone p  { font-size:11px; color:var(--ink-3); margin-top:5px; }
+.dz-loaded-name { font-family:var(--mono); font-size:11px; color:var(--ok); margin-top:6px; }
+
+/* ── Run button ── */
+.run-row { display:flex; justify-content:center; margin-bottom:2.5rem; }
+.btn-run {
+  padding:11px 40px; background:var(--ink); color:#fff;
+  border:none; font-family:var(--mono); font-size:13px;
+  letter-spacing:.04em; cursor:pointer; border-radius:2px;
+  transition: opacity .15s;
+}
+.btn-run:disabled { opacity:.3; cursor:not-allowed; }
+.btn-run:not(:disabled):hover { opacity:.8; }
+
+/* ── Tabs ── */
+.tabs { display:flex; gap:0; margin-bottom:1.5rem; border-bottom:1px solid var(--line); }
+.tab-btn {
+  padding:9px 20px; background:transparent; border:none;
+  font-family:var(--mono); font-size:12px; color:var(--ink-3);
+  cursor:pointer; border-bottom:2px solid transparent;
+  margin-bottom:-1px; transition:color .1s;
+  text-transform:uppercase; letter-spacing:.06em;
+}
+.tab-btn.active { color:var(--ink); border-bottom-color:var(--ink); }
+
+/* ── Summary ── */
+.summary-grid {
+  display:grid; grid-template-columns:repeat(4,1fr);
+  gap:1px; background:var(--line);
+  border:1px solid var(--line); border-radius:4px;
+  overflow:hidden; margin-bottom:2rem;
+}
+.stat { background:#fff; padding:1.1rem 1.2rem; }
+.stat-n { font-size:26px; font-weight:500; font-family:var(--mono); }
+.stat-label { font-size:10px; color:var(--ink-3); margin-top:4px; text-transform:uppercase; letter-spacing:.05em; }
+.n-ok   { color:var(--ok); }
+.n-warn { color:var(--warn); }
+.n-err  { color:var(--err); }
+.n-new  { color:var(--new); }
+
+@media(max-width:520px){ .summary-grid{ grid-template-columns:repeat(2,1fr); } }
+
+/* ── Section ── */
+.section-wrap { display:none; }
+.section-wrap.active { display:block; }
+
+.section-head {
+  display:flex; align-items:center; gap:10px;
+  border-bottom:1px solid var(--line);
+  padding-bottom:8px; margin:1.75rem 0 .9rem;
+}
+.section-head h2 { font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-3); font-family:var(--mono); }
+.count-pill { font-size:10px; font-family:var(--mono); padding:2px 8px; border-radius:2px; }
+.cp-ok   { background:var(--ok-bg);   color:var(--ok); }
+.cp-warn { background:var(--warn-bg); color:var(--warn); }
+.cp-err  { background:var(--err-bg);  color:var(--err); }
+.cp-new  { background:var(--new-bg);  color:var(--new); }
+
+/* ── Item rows ── */
+.item-row {
+  display:grid; grid-template-columns:148px 1fr auto;
+  gap:14px; align-items:start;
+  padding:11px 0; border-bottom:1px solid #f0ede8;
+}
+.item-row:last-child { border-bottom:none; }
+.col-pn   { font-family:var(--mono); font-size:11px; color:var(--ink-3); padding-top:2px; word-break:break-all; }
+.item-name{ font-weight:500; font-size:13.5px; color:var(--ink); }
+.item-spec{ font-size:11px; color:var(--ink-3); margin-top:3px; line-height:1.55; }
+.col-right{ text-align:right; }
+.item-qty { font-family:var(--mono); font-size:11px; color:var(--ink-3); margin-top:5px; }
+
+.tag { display:inline-block; font-size:10px; font-family:var(--mono); padding:2px 8px; border-radius:2px; white-space:nowrap; }
+.tag-ok   { background:var(--ok-bg);   color:var(--ok); }
+.tag-warn { background:var(--warn-bg); color:var(--warn); }
+.tag-err  { background:var(--err-bg);  color:var(--err); }
+.tag-new  { background:var(--new-bg);  color:var(--new); }
+.tag-sop  { background:#f3edfb; color:#4a1a7a; }
+
+/* ── Diff lines ── */
+.diff-lines { margin-top:6px; }
+.diff-line  { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px; font-size:11px; font-family:var(--mono); margin-top:3px; }
+.diff-field { color:var(--ink-3); }
+.diff-old   { color:var(--err); text-decoration:line-through; }
+.diff-arrow { color:var(--ink-3); }
+.diff-new   { color:var(--ok); }
+
+/* ── Note banner ── */
+.note-banner { font-size:12px; color:var(--warn); padding:9px 14px; background:var(--warn-bg); border-left:3px solid #e8a030; border-radius:0 3px 3px 0; margin-bottom:1rem; line-height:1.6; }
+.info-banner { font-size:12px; color:var(--new); padding:9px 14px; background:var(--new-bg); border-left:3px solid #378ADD; border-radius:0 3px 3px 0; margin-bottom:1rem; line-height:1.6; }
+
+/* ── Empty state ── */
+.empty { text-align:center; padding:3rem 1rem; font-size:13px; color:var(--ink-3); font-family:var(--mono); }
+
+/* ── Actions ── */
+.actions { margin-top:2.5rem; display:flex; gap:10px; flex-wrap:wrap; }
+.btn { padding:9px 22px; border:1px solid var(--ink); background:transparent; font-family:var(--mono); font-size:12px; cursor:pointer; border-radius:2px; color:var(--ink); transition:all .1s; letter-spacing:.02em; }
+.btn:hover { background:var(--ink); color:#fff; }
+.btn-ghost { border-color:var(--line); color:var(--ink-3); }
+.btn-ghost:hover { background:var(--surface); color:var(--ink); border-color:var(--ink-3); }
+
+/* ── Footer ── */
+.footer { margin-top:4rem; padding-top:1.5rem; border-top:1px solid var(--line); font-family:var(--mono); font-size:11px; color:var(--ink-3); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+
+/* ── Loading ── */
+.loading { display:none; text-align:center; padding:2.5rem; font-family:var(--mono); font-size:12px; color:var(--ink-3); }
+.loading.show { display:block; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+.loading span { animation: blink 1.2s ease-in-out infinite; }
+
+/* ── Results ── */
+.results-block { display:none; }
+.results-block.show { display:block; }
+
+@media(max-width:580px){ .item-row{ grid-template-columns:110px 1fr auto; gap:8px; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <span class="topbar-brand">麥威電子</span>
+    <h1>BOM × SOP 雙向比對工具</h1>
+    <span class="topbar-ver">SP10-WS-21/25-M01 · A1</span>
+  </div>
+
+  <!-- Upload grid -->
+  <div class="upload-grid">
+
+    <!-- BOM -->
+    <div class="upload-card">
+      <div class="upload-label-row">
+        <span class="upload-label">包裝 BOM</span>
+        <span class="file-type-badge badge-xlsx">.xlsx</span>
+      </div>
+      <div class="dropzone" id="dz-bom">
+        <input type="file" id="fi-bom" accept=".xlsx,.xls" />
+        <div class="dz-icon">⬆</div>
+        <h3>拖曳或點擊上傳</h3>
+        <p>需含：原料編號、原料名稱、規格、單位用量</p>
+        <div class="dz-loaded-name" id="fn-bom"></div>
+      </div>
+      <div style="font-size:11px;color:var(--ink-3)">或使用內建基準版（不上傳則以 A1 版為準）</div>
+    </div>
+
+    <!-- SOP -->
+    <div class="upload-card">
+      <div class="upload-label-row">
+        <span class="upload-label">包裝 SOP</span>
+        <span class="file-type-badge badge-docx">.docx</span>
+      </div>
+      <div class="dropzone" id="dz-sop">
+        <input type="file" id="fi-sop" accept=".docx" />
+        <div class="dz-icon">⬬</div>
+        <h3>拖曳或點擊上傳</h3>
+        <p>需含「所需內容物」料號清單段落</p>
+        <div class="dz-loaded-name" id="fn-sop"></div>
+      </div>
+      <div style="font-size:11px;color:var(--ink-3)">或使用內建基準版（不上傳則以原始 SOP 為準）</div>
+    </div>
+
+  </div>
+
+  <!-- Run -->
+  <div class="run-row">
+    <button class="btn-run" id="btn-run" onclick="runCompare()">開始比對</button>
+  </div>
+
+  <div class="loading" id="loading"><span>比對分析中…</span></div>
+
+  <!-- Results -->
+  <div class="results-block" id="results-block">
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="showTab('bom-vs-sop', this)">BOM vs SOP</button>
+      <button class="tab-btn" onclick="showTab('bom-changes', this)">BOM 版本差異</button>
+      <button class="tab-btn" onclick="showTab('sop-changes', this)">SOP 版本差異</button>
+    </div>
+
+    <!-- ══ TAB 1: BOM vs SOP ══ -->
+    <div class="section-wrap active" id="tab-bom-vs-sop">
+      <div id="banners-bvs"></div>
+      <div class="summary-grid">
+        <div class="stat"><div class="stat-n n-ok"  id="bvs-match">0</div><div class="stat-label">BOM+SOP 一致</div></div>
+        <div class="stat"><div class="stat-n n-err"  id="bvs-bonly">0</div><div class="stat-label">BOM有/SOP無</div></div>
+        <div class="stat"><div class="stat-n n-new"  id="bvs-sonly">0</div><div class="stat-label">SOP有/BOM無</div></div>
+        <div class="stat"><div class="stat-n n-warn" id="bvs-total">0</div><div class="stat-label">比對料件總數</div></div>
+      </div>
+
+      <div id="sec-bonly" style="display:none">
+        <div class="section-head"><h2>BOM 有、SOP 缺漏</h2><span class="count-pill cp-err" id="cnt-bonly"></span></div>
+        <div id="list-bonly"></div>
+      </div>
+      <div id="sec-sonly" style="display:none">
+        <div class="section-head"><h2>SOP 有、BOM 無對應</h2><span class="count-pill cp-new" id="cnt-sonly"></span></div>
+        <div id="list-sonly"></div>
+      </div>
+      <div id="sec-bvs-match">
+        <div class="section-head"><h2>雙向一致</h2><span class="count-pill cp-ok" id="cnt-bvs-match"></span></div>
+        <div id="list-bvs-match"></div>
+      </div>
+    </div>
+
+    <!-- ══ TAB 2: BOM 版本差異 ══ -->
+    <div class="section-wrap" id="tab-bom-changes">
+      <div id="banners-bom"></div>
+      <div class="summary-grid">
+        <div class="stat"><div class="stat-n n-ok"  id="bom-match">0</div><div class="stat-label">完全一致</div></div>
+        <div class="stat"><div class="stat-n n-warn" id="bom-changed">0</div><div class="stat-label">內容變更</div></div>
+        <div class="stat"><div class="stat-n n-new"  id="bom-added">0</div><div class="stat-label">新增料件</div></div>
+        <div class="stat"><div class="stat-n n-err"  id="bom-removed">0</div><div class="stat-label">刪除料件</div></div>
+      </div>
+
+      <div id="sec-bom-changed" style="display:none">
+        <div class="section-head"><h2>變更項目</h2><span class="count-pill cp-warn" id="cnt-bom-changed"></span></div>
+        <div id="list-bom-changed"></div>
+      </div>
+      <div id="sec-bom-added" style="display:none">
+        <div class="section-head"><h2>新增料件</h2><span class="count-pill cp-new" id="cnt-bom-added"></span></div>
+        <div id="list-bom-added"></div>
+      </div>
+      <div id="sec-bom-removed" style="display:none">
+        <div class="section-head"><h2>刪除料件</h2><span class="count-pill cp-err" id="cnt-bom-removed"></span></div>
+        <div id="list-bom-removed"></div>
+      </div>
+      <div id="sec-bom-match">
+        <div class="section-head"><h2>無異動料件</h2><span class="count-pill cp-ok" id="cnt-bom-match"></span></div>
+        <div id="list-bom-match"></div>
+      </div>
+    </div>
+
+    <!-- ══ TAB 3: SOP 版本差異 ══ -->
+    <div class="section-wrap" id="tab-sop-changes">
+      <div id="banners-sop"></div>
+      <div class="summary-grid">
+        <div class="stat"><div class="stat-n n-ok"  id="sop-match">0</div><div class="stat-label">一致料號</div></div>
+        <div class="stat"><div class="stat-n n-err"  id="sop-removed">0</div><div class="stat-label">基準有/新版無</div></div>
+        <div class="stat"><div class="stat-n n-new"  id="sop-added">0</div><div class="stat-label">新版新增</div></div>
+        <div class="stat"><div class="stat-n n-warn" id="sop-total">0</div><div class="stat-label">比對料件總數</div></div>
+      </div>
+
+      <div id="sec-sop-removed" style="display:none">
+        <div class="section-head"><h2>基準有、新版 SOP 缺漏</h2><span class="count-pill cp-err" id="cnt-sop-removed"></span></div>
+        <div id="list-sop-removed"></div>
+      </div>
+      <div id="sec-sop-added" style="display:none">
+        <div class="section-head"><h2>新版 SOP 新增</h2><span class="count-pill cp-new" id="cnt-sop-added"></span></div>
+        <div id="list-sop-added"></div>
+      </div>
+      <div id="sec-sop-match">
+        <div class="section-head"><h2>一致料號</h2><span class="count-pill cp-ok" id="cnt-sop-match"></span></div>
+        <div id="list-sop-match"></div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button class="btn" onclick="exportReport()">匯出完整報告 .txt</button>
+      <button class="btn btn-ghost" onclick="resetAll()">重新上傳</button>
+    </div>
+  </div><!-- /results-block -->
+
+  <div class="footer">
+    <span>SP-10 Eversync Wireless System — BOM × SOP 雙向比對工具</span>
+    <span id="footer-ts"></span>
+  </div>
+</div><!-- /page -->
+
+<script>
+/* ══════════════════════════════════════════
+   BASELINE DATA
+══════════════════════════════════════════ */
+const BASE_BOM = [
+  { pn:'CLV0C21AT01', name:'SP-10 主機',                     spec:'待補',                                                                  unit:'PCS', qty:1 },
+  { pn:'CLV0C25AR01', name:'SP-10 接收器',                   spec:'待補',                                                                  unit:'PCS', qty:1 },
+  { pn:'P0XVC001401', name:'撕不破防水logo貼紙',             spec:'黑色珠光合成貼紙。尺寸:12.5*4 cm.長方形 黑底白字彩色logo',             unit:'PCS', qty:1 },
+  { pn:'M0XVC040001', name:'SP-10 快速使用指南與保固登錄卡', spec:'尺寸：297 x 420 mm (A3)  材質: 80P 影印紙 印刷顏色：雙面黑白印刷',    unit:'PCS', qty:1 },
+  { pn:'P0XCC381401', name:'USB C to USB C 訊號線_無PD認證', spec:'UL2725 30AWGX3C+22AWGX2C OD3.5mm 黑色，無PD 認證，長度 2M，USB 2.0',unit:'PCS', qty:1 },
+  { pn:'M0ZVCLV0001', name:'產品外盒生產履歷貼紙',           spec:'依各產品建立內容',                                                      unit:'PCS', qty:1 },
+  { pn:'PCM0CLV1051', name:'綜合封箱貼紙',                   spec:'W110xH100mm、模造(油膠)、彩(獨)/1R圓角刀/單張/無背刀',               unit:'PCS', qty:1 },
+  { pn:'P0XVC261101', name:'長型包裝盒(24.5*14.8cm)',        spec:'待補',                                                                  unit:'PCS', qty:1 },
+  { pn:'P0XVC261102', name:'EverSync紙盒內襯',               spec:'待補',                                                                  unit:'PCS', qty:1 },
+  { pn:'PCM0CLV1012', name:'雲聲成品10入外箱',               spec:'尺寸: 內徑51x27x41cm 外53x29x43cm 材質: 5層 浪別: AB 紙箱型式: A1型',unit:'PCS', qty:1 },
+  { pn:'PCM0CLV1064', name:'雲聲成品外箱內容說明標籤',       spec:'42mm X 100mm 白底自黏式標籤，黑色印刷字體',                            unit:'PCS', qty:1 },
+  { pn:'MTR1C010033', name:'CLV系列產品整機生產履歷序標',    spec:'FIX00000010 標籤貼紙22x12mm (黑底倒角)',                               unit:'PCS', qty:2 },
+  { pn:'PCM0CLV3029', name:'萬國usb charger',                spec:'MODEL: A122 - Input: AC100-240V, 50/60Hz/Output: 5V 2A',               unit:'PCS', qty:1 },
+  { pn:'PCM0CLV3002', name:'CLV09-7V',                       spec:'入料: a. 150cm DC Plug cable b.CLV09 PCBA',                            unit:'PCS', qty:1 },
+];
+
+// Baseline SOP part numbers (from original SP-10包裝SOP.docx)
+const BASE_SOP_PNS = new Set([
+  'CLV0C21AT01','CLV0C25AR01','P0XVC001401','M0XVC040001','P0XCC381401',
+  'M0ZVCLV0001','PCM0CLV1051','P0XVC261101','P0XVC261102','PCM0CLV1012',
+  'PCM0CLV1064','MTR1C010033','PCM0CLV3029','PCM0CLV3002'
+]);
+
+/* ══════════════════════════════════════════
+   STATE
+══════════════════════════════════════════ */
+let uploadedBOM = null; // parsed array or null → use BASE_BOM
+let uploadedSOP = null; // Set of PNs or null → use BASE_SOP_PNS
+let lastExportData = {};
+
+/* ══════════════════════════════════════════
+   DRAG & DROP SETUP
+══════════════════════════════════════════ */
+setupDZ('dz-bom', 'fi-bom', 'fn-bom', ['.xlsx','.xls'], handleBOM);
+setupDZ('dz-sop', 'fi-sop', 'fn-sop', ['.docx'],         handleSOP);
+
+function setupDZ(dzId, fiId, fnId, exts, handler) {
+  const dz = document.getElementById(dzId);
+  const fi = document.getElementById(fiId);
+  dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag');
+    const f = e.dataTransfer.files[0];
+    if (f) handler(f, dzId, fnId);
+  });
+  fi.addEventListener('change', e => {
+    if (e.target.files[0]) handler(e.target.files[0], dzId, fnId);
+  });
+}
+
+/* ══════════════════════════════════════════
+   FILE HANDLERS
+══════════════════════════════════════════ */
+function handleBOM(file, dzId, fnId) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb   = XLSX.read(e.target.result, { type:'array' });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1 });
+      const bom  = parseBOMRows(rows);
+      if (!bom.length) throw new Error('empty');
+      uploadedBOM = bom;
+      setLoaded(dzId, fnId, file.name + '　(' + bom.length + ' 筆)');
+    } catch(e) { alert('BOM 解析失敗，請確認欄位包含「原料編號」'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function handleSOP(file, dzId, fnId) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    mammoth.extractRawText({ arrayBuffer: e.target.result })
+      .then(result => {
+        const pns = parseSOPText(result.value);
+        if (!pns.size) { alert('SOP 解析失敗，未找到料號（格式需含英數料號）'); return; }
+        uploadedSOP = pns;
+        setLoaded(dzId, fnId, file.name + '　(' + pns.size + ' 個料號)');
+      })
+      .catch(() => alert('SOP(.docx)解析失敗'));
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function setLoaded(dzId, fnId, text) {
+  document.getElementById(dzId).classList.add('loaded');
+  const el = document.getElementById(fnId);
+  el.textContent = '✓ ' + text;
+}
+
+/* ══════════════════════════════════════════
+   PARSERS
+══════════════════════════════════════════ */
+function parseBOMRows(rows) {
+  let hRow=-1, cPN=-1, cName=-1, cSpec=-1, cUnit=-1, cQty=-1;
+  for (let i=0; i<rows.length; i++) {
+    const r = rows[i]; if (!r) continue;
+    for (let j=0; j<r.length; j++) {
+      const v = String(r[j]||'');
+      if ((v.includes('原料編號')||v.includes('料號')) && cPN<0)    { cPN=j; hRow=i; }
+      if ((v.includes('原料名稱')||v.includes('品名'))  && cName<0)  cName=j;
+      if (v.includes('規格')                             && cSpec<0)  cSpec=j;
+      if ((v.includes('單位用量')||v.includes('用量'))   && cQty<0)   cQty=j;
+      if (v.includes('單位') && !v.includes('成本') && !v.includes('用量') && cUnit<0) cUnit=j;
+    }
+    if (hRow>=0) break;
+  }
+  if (hRow<0||cPN<0) return [];
+  const out=[];
+  for (let i=hRow+1; i<rows.length; i++) {
+    const r=rows[i]; if(!r||!r[cPN]) continue;
+    const pn=String(r[cPN]).trim();
+    if (!pn||pn.startsWith('NOTE')||pn.length<5) continue;
+    out.push({
+      pn,
+      name: cName>=0 ? String(r[cName]||'').trim():'',
+      spec: cSpec>=0 ? String(r[cSpec]||'').trim():'',
+      unit: cUnit>=0 ? String(r[cUnit]||'PCS').trim():'PCS',
+      qty:  cQty>=0  ? parseFloat(r[cQty])||1:1,
+    });
+  }
+  return out;
+}
+
+function parseSOPText(text) {
+  // Match part numbers: uppercase letters/numbers, 8+ chars with digits
+  const re = /\b([A-Z0-9]{8,})\b/g;
+  const pns = new Set();
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const p = m[1];
+    // filter out common non-PN uppercase words
+    if (/^(USB|SOP|SKU|UPC|NOTE|ONLY|GAIN|FLAT|MODE|OFF|INPUT|OUTPUT|MODEL|COLOR|SHELL|MUTE|BOOST|RADIO|TONE|AUDIO|STABLE|LOW|FUNCTION)/.test(p)) continue;
+    if (/\d/.test(p)) pns.add(p); // must contain at least one digit
+  }
+  return pns;
+}
+
+/* ══════════════════════════════════════════
+   MAIN COMPARE
+══════════════════════════════════════════ */
+function runCompare() {
+  document.getElementById('loading').classList.add('show');
+  document.getElementById('results-block').classList.remove('show');
+  setTimeout(() => {
+    try {
+      const activeBOM = uploadedBOM || BASE_BOM;
+      const activeSOP = uploadedSOP || BASE_SOP_PNS;
+      const activeBOMpns = new Set(activeBOM.map(b=>b.pn));
+
+      /* ── Tab 1: BOM vs SOP ── */
+      const bOnly=[], sOnly=[], bvsMatch=[];
+      for (const item of activeBOM) {
+        activeSOP.has(item.pn) ? bvsMatch.push(item) : bOnly.push(item);
+      }
+      for (const pn of activeSOP) {
+        if (!activeBOMpns.has(pn)) sOnly.push({ pn, name:'（BOM 中無此料號）', spec:'', unit:'', qty:'-' });
+      }
+
+      /* ── Tab 2: BOM version diff vs baseline ── */
+      const baseMap = Object.fromEntries(BASE_BOM.map(b=>[b.pn,b]));
+      const newMap  = uploadedBOM ? Object.fromEntries(uploadedBOM.map(b=>[b.pn,b])) : null;
+      const bomMatch=[], bomChanged=[], bomAdded=[], bomRemoved=[];
+      if (newMap) {
+        for (const b of BASE_BOM) {
+          if (!newMap[b.pn]) { bomRemoved.push(b); continue; }
+          const n=newMap[b.pn], diffs=[];
+          if (n.name!==b.name) diffs.push({ field:'名稱', old:b.name, nw:n.name });
+          if (n.qty !==b.qty)  diffs.push({ field:'用量', old:String(b.qty), nw:String(n.qty) });
+          if (n.spec!==b.spec && n.spec) diffs.push({ field:'規格', old:b.spec, nw:n.spec });
+          diffs.length ? bomChanged.push({base:b,new:n,diffs}) : bomMatch.push(b);
+        }
+        for (const n of uploadedBOM) { if (!baseMap[n.pn]) bomAdded.push(n); }
+      } else {
+        BASE_BOM.forEach(b => bomMatch.push(b));
+      }
+
+      /* ── Tab 3: SOP version diff vs baseline ── */
+      const sopMatch=[], sopRemoved=[], sopAdded=[];
+      if (uploadedSOP) {
+        for (const pn of BASE_SOP_PNS) {
+          const baseItem = BASE_BOM.find(b=>b.pn===pn)||{pn,name:'',spec:'',unit:'',qty:1};
+          uploadedSOP.has(pn) ? sopMatch.push(baseItem) : sopRemoved.push(baseItem);
+        }
+        for (const pn of uploadedSOP) {
+          if (!BASE_SOP_PNS.has(pn)) {
+            const found = activeBOM.find(b=>b.pn===pn)||{pn,name:'（BOM中查無）',spec:'',unit:'',qty:'-'};
+            sopAdded.push(found);
+          }
+        }
+      } else {
+        BASE_SOP_PNS.forEach(pn => {
+          const item = BASE_BOM.find(b=>b.pn===pn)||{pn,name:'',spec:'',unit:'PCS',qty:1};
+          sopMatch.push(item);
+        });
+      }
+
+      lastExportData = { bOnly, sOnly, bvsMatch, bomMatch, bomChanged, bomAdded, bomRemoved, sopMatch, sopRemoved, sopAdded, activeBOM, activeSOP };
+
+      /* ── Render ── */
+      renderBvsS(bOnly, sOnly, bvsMatch);
+      renderBOMDiff(bomMatch, bomChanged, bomAdded, bomRemoved);
+      renderSOPDiff(sopMatch, sopRemoved, sopAdded);
+
+      document.getElementById('loading').classList.remove('show');
+      document.getElementById('results-block').classList.add('show');
+      document.getElementById('footer-ts').textContent = '比對時間：' + new Date().toLocaleString('zh-TW');
+      document.getElementById('results-block').scrollIntoView({ behavior:'smooth', block:'start' });
+    } catch(e) {
+      document.getElementById('loading').classList.remove('show');
+      console.error(e);
+      alert('比對過程發生錯誤：' + e.message);
+    }
+  }, 50);
+}
+
+/* ══════════════════════════════════════════
+   RENDERERS
+══════════════════════════════════════════ */
+function renderBvsS(bOnly, sOnly, matched) {
+  const total = matched.length + bOnly.length + sOnly.length;
+  set('bvs-match', matched.length);
+  set('bvs-bonly', bOnly.length);
+  set('bvs-sonly', sOnly.length);
+  set('bvs-total', total);
+
+  let banners = '';
+  if (bOnly.length)  banners += `<div class="note-banner">⚠ BOM 有 ${bOnly.length} 個料件未出現在 SOP 內容物清單，SOP 可能需要補入。</div>`;
+  if (sOnly.length)  banners += `<div class="note-banner">⚠ SOP 列出 ${sOnly.length} 個料號在目前 BOM 中找不到對應，請確認是否需移除。</div>`;
+  if (!bOnly.length && !sOnly.length) banners = `<div class="info-banner">✓ BOM 與 SOP 料件完全一致，無差異。</div>`;
+  document.getElementById('banners-bvs').innerHTML = banners;
+
+  renderSec('sec-bonly','cnt-bonly','list-bonly', bOnly.length, bOnly,
+    i => row(i.pn, i.name, i.spec, i.qty, `<span class="tag tag-err">SOP缺漏</span>`));
+  renderSec('sec-sonly','cnt-sonly','list-sonly', sOnly.length, sOnly,
+    i => row(i.pn, i.name, i.spec, i.qty, `<span class="tag tag-sop">SOP獨有</span>`));
+  set('cnt-bvs-match', matched.length);
+  document.getElementById('list-bvs-match').innerHTML = matched.map(i=>row(i.pn,i.name,i.spec,i.qty,`<span class="tag tag-ok">一致</span>`)).join('');
+}
+
+function renderBOMDiff(matched, changed, added, removed) {
+  set('bom-match',   matched.length);
+  set('bom-changed', changed.length);
+  set('bom-added',   added.length);
+  set('bom-removed', removed.length);
+
+  let banners = '';
+  if (!uploadedBOM) {
+    banners = `<div class="info-banner">未上傳新版 BOM，顯示基準版本（A1）內容，無差異可比對。</div>`;
+  } else if (!changed.length && !added.length && !removed.length) {
+    banners = `<div class="info-banner">✓ 新版 BOM 與基準版本（A1）完全一致。</div>`;
+  } else {
+    if (changed.length||added.length||removed.length)
+      banners = `<div class="note-banner">⚠ 新版 BOM 與基準（A1）有差異，請確認 SOP 內容物清單是否需同步更新。</div>`;
+  }
+  document.getElementById('banners-bom').innerHTML = banners;
+
+  renderSec('sec-bom-changed','cnt-bom-changed','list-bom-changed', changed.length, changed, i => {
+    const dlines = i.diffs.map(d =>
+      `<div class="diff-line"><span class="diff-field">[${d.field}]</span><span class="diff-old">${esc(d.old)}</span><span class="diff-arrow">→</span><span class="diff-new">${esc(d.nw)}</span></div>`
+    ).join('');
+    return row(i.base.pn, i.new.name, i.new.spec, i.new.qty,
+      `<span class="tag tag-warn">已變更</span>`,
+      `<div class="diff-lines">${dlines}</div>`);
+  });
+  renderSec('sec-bom-added','cnt-bom-added','list-bom-added', added.length, added,
+    i => row(i.pn, i.name, i.spec, i.qty, `<span class="tag tag-new">新增</span>`));
+  renderSec('sec-bom-removed','cnt-bom-removed','list-bom-removed', removed.length, removed,
+    i => row(i.pn, i.name, i.spec, i.qty, `<span class="tag tag-err">已刪除</span>`));
+  set('cnt-bom-match', matched.length);
+  document.getElementById('list-bom-match').innerHTML = matched.map(i=>row(i.pn,i.name,i.spec,i.qty,`<span class="tag tag-ok">一致</span>`)).join('');
+}
+
+function renderSOPDiff(matched, removed, added) {
+  const total = matched.length + removed.length + added.length;
+  set('sop-match',   matched.length);
+  set('sop-removed', removed.length);
+  set('sop-added',   added.length);
+  set('sop-total',   total);
+
+  let banners = '';
+  if (!uploadedSOP) {
+    banners = `<div class="info-banner">未上傳新版 SOP，顯示基準版本料號，無差異可比對。</div>`;
+  } else if (!removed.length && !added.length) {
+    banners = `<div class="info-banner">✓ 新版 SOP 料號與基準版本完全一致。</div>`;
+  } else {
+    banners = `<div class="note-banner">⚠ 新版 SOP 料號與基準有差異，請核對對應 BOM 是否同步。</div>`;
+  }
+  document.getElementById('banners-sop').innerHTML = banners;
+
+  renderSec('sec-sop-removed','cnt-sop-removed','list-sop-removed', removed.length, removed,
+    i => row(i.pn, i.name, i.spec, i.qty, `<span class="tag tag-err">SOP已移除</span>`));
+  renderSec('sec-sop-added','cnt-sop-added','list-sop-added', added.length, added,
+    i => row(i.pn, i.name, i.spec, i.qty, `<span class="tag tag-new">SOP新增</span>`));
+  set('cnt-sop-match', matched.length);
+  document.getElementById('list-sop-match').innerHTML = matched.map(i=>row(i.pn,i.name,i.spec,i.qty,`<span class="tag tag-ok">一致</span>`)).join('');
+}
+
+/* ══════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════ */
+function renderSec(secId, cntId, listId, count, items, fn) {
+  const sec = document.getElementById(secId);
+  if (!count) { sec.style.display='none'; return; }
+  sec.style.display='block';
+  set(cntId, count);
+  document.getElementById(listId).innerHTML = items.map(fn).join('');
+}
+
+function row(pn, name, spec, qty, tagHtml, diffHtml='') {
+  return `<div class="item-row">
+    <div class="col-pn">${esc(pn)}</div>
+    <div>
+      <div class="item-name">${esc(name)}</div>
+      <div class="item-spec">${esc(String(spec||''))}</div>
+      ${diffHtml}
+    </div>
+    <div class="col-right">${tagHtml}<div class="item-qty">×${qty}</div></div>
+  </div>`;
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function set(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+/* ══════════════════════════════════════════
+   TABS
+══════════════════════════════════════════ */
+function showTab(tabId, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.section-wrap').forEach(s=>s.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-'+tabId).classList.add('active');
+}
+
+/* ══════════════════════════════════════════
+   EXPORT
+══════════════════════════════════════════ */
+function exportReport() {
+  const { bOnly, sOnly, bvsMatch, bomMatch, bomChanged, bomAdded, bomRemoved, sopMatch, sopRemoved, sopAdded } = lastExportData;
+  const ts = new Date().toLocaleString('zh-TW');
+  let t = `BOM × SOP 雙向比對報告\n生成時間：${ts}\n基準版本：SP10-WS-21/25-M01 (A1)\n${'═'.repeat(54)}\n\n`;
+
+  t += `【BOM vs SOP 一致性】\n`;
+  t += `  雙向一致：${bvsMatch.length} 筆　BOM有SOP無：${bOnly.length} 筆　SOP有BOM無：${sOnly.length} 筆\n`;
+  if (bOnly.length) { t+=`\n  BOM有、SOP缺漏：\n`; bOnly.forEach(i=>t+=`    ${i.pn}  ${i.name}\n`); }
+  if (sOnly.length) { t+=`\n  SOP有、BOM無對應：\n`; sOnly.forEach(i=>t+=`    ${i.pn}  ${i.name}\n`); }
+  t+='\n';
+
+  t += `【BOM 版本差異（vs 基準 A1）】\n`;
+  if (!uploadedBOM) { t+='  未上傳新版 BOM\n\n'; }
+  else {
+    t+=`  一致:${bomMatch.length}  變更:${bomChanged.length}  新增:${bomAdded.length}  刪除:${bomRemoved.length}\n`;
+    if (bomChanged.length) { t+=`\n  變更項目：\n`; bomChanged.forEach(c=>{ t+=`    ${c.base.pn}  ${c.new.name}\n`; c.diffs.forEach(d=>t+=`      [${d.field}] ${d.old} → ${d.nw}\n`); }); }
+    if (bomAdded.length)   { t+=`\n  新增料件：\n`; bomAdded.forEach(i=>t+=`    ${i.pn}  ${i.name}  ×${i.qty}\n`); }
+    if (bomRemoved.length) { t+=`\n  刪除料件：\n`; bomRemoved.forEach(i=>t+=`    ${i.pn}  ${i.name}\n`); }
+    t+='\n';
+  }
+
+  t += `【SOP 版本差異（vs 基準 SOP）】\n`;
+  if (!uploadedSOP) { t+='  未上傳新版 SOP\n\n'; }
+  else {
+    t+=`  一致:${sopMatch.length}  缺漏:${sopRemoved.length}  新增:${sopAdded.length}\n`;
+    if (sopRemoved.length) { t+=`\n  基準有、新SOP缺漏：\n`; sopRemoved.forEach(i=>t+=`    ${i.pn}  ${i.name}\n`); }
+    if (sopAdded.length)   { t+=`\n  新SOP新增：\n`; sopAdded.forEach(i=>t+=`    ${i.pn}  ${i.name}\n`); }
+    t+='\n';
+  }
+
+  const blob = new Blob([t], { type:'text/plain;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href=url; a.download='BOM_SOP比對報告_'+new Date().toISOString().slice(0,10)+'.txt';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+/* ══════════════════════════════════════════
+   RESET
+══════════════════════════════════════════ */
+function resetAll() {
+  uploadedBOM = null; uploadedSOP = null; lastExportData = {};
+  ['dz-bom','dz-sop'].forEach(id=>document.getElementById(id).classList.remove('loaded'));
+  ['fn-bom','fn-sop'].forEach(id=>{ document.getElementById(id).textContent=''; });
+  ['fi-bom','fi-sop'].forEach(id=>{ document.getElementById(id).value=''; });
+  document.getElementById('results-block').classList.remove('show');
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+/* Init */
+document.getElementById('footer-ts').textContent = '工具建立：' + new Date().toLocaleDateString('zh-TW');
+</script>
+</body>
+</html>
